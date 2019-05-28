@@ -315,7 +315,9 @@ mod test {
     fn intervals_contains() {
         let mut intervals = Intervals::new();
         assert!(intervals.insert(Interval::new(0, 3)));
+        assert!(!intervals.insert(Interval::new(0, 2)));
         assert!(!intervals.insert(Interval::new(1, 2)));
+        assert!(!intervals.insert(Interval::new(1, 3)));
     }
 
     #[test]
