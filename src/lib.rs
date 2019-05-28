@@ -169,14 +169,14 @@ impl Intervals {
 
         let mut result: Vec<Interval> = Vec::new();
 
-        for interval in intervals.iter() {
+        for interval in intervals.into_iter() {
             if let Some(mut last_inter) = result.last_mut() {
                 if last_inter.end >= interval.start {
                     last_inter.end = u64::max(last_inter.end, interval.end);
                     continue;
                 }
             }
-            result.push(*interval);
+            result.push(interval);
         }
 
         if result == self.inner {
@@ -192,7 +192,7 @@ impl Intervals {
     }
 }
 
-#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 struct Interval {
     pub start: u64,
     pub end: u64,
@@ -323,5 +323,14 @@ mod test {
         let mut intervals = Intervals::new();
         assert!(intervals.insert(Interval::new(1, 2)));
         assert!(intervals.insert(Interval::new(0, 3)));
+    }
+
+    #[test]
+    fn intervals_staircase() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(0, 1)));
+        assert!(intervals.insert(Interval::new(1, 2)));
+        assert!(intervals.insert(Interval::new(2, 3)));
+        assert!(!intervals.insert(Interval::new(1, 3)));
     }
 }
