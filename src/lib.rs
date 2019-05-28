@@ -11,10 +11,11 @@ use bytes::Bytes;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Sequencer {
     offset: u64,
     data: BinaryHeap<Chunk>,
+    intervals: Intervals,
 }
 
 impl Sequencer {
@@ -22,6 +23,7 @@ impl Sequencer {
         Self {
             offset: 0,
             data: BinaryHeap::new(),
+            intervals: Intervals::new(),
         }
     }
 
@@ -96,7 +98,10 @@ impl Sequencer {
     }
 
     pub fn insert(&mut self, offset: u64, bytes: Bytes) {
-        self.data.push(Chunk { offset, bytes });
+        let interval = Interval::new(offset, offset + bytes.len() as u64);
+        if self.intervals.insert(interval) {
+            self.data.push(Chunk { offset, bytes });
+        }
     }
 
     /// Current position in the stream
@@ -136,6 +141,67 @@ impl PartialOrd for Chunk {
 impl PartialEq for Chunk {
     fn eq(&self, other: &Chunk) -> bool {
         (self.offset, self.bytes.len()) == (other.offset, other.bytes.len())
+    }
+}
+
+#[derive(Debug, Default)]
+struct Intervals {
+    inner: Vec<Interval>,
+}
+
+impl Intervals {
+    #[inline]
+    pub(crate) fn new() -> Self {
+        Intervals { inner: Vec::new() }
+    }
+
+    /// Inserts an interval into this intervals object
+    /// Returns a bool determining whether the insert changes the underlying intervals
+    pub(crate) fn insert(&mut self, interval: Interval) -> bool {
+        let mut intervals = self.inner.clone();
+        intervals.push(interval);
+        intervals.sort_unstable();
+        intervals.dedup();
+
+        if intervals == self.inner {
+            return false;
+        }
+
+        let mut result: Vec<Interval> = Vec::new();
+
+        for interval in intervals.iter() {
+            if let Some(mut last_inter) = result.last_mut() {
+                if last_inter.end >= interval.start {
+                    last_inter.end = u64::max(last_inter.end, interval.end);
+                    continue;
+                }
+            }
+            result.push(*interval);
+        }
+
+        if result == self.inner {
+            false
+        } else {
+            *self.inner_mut() = result;
+            true
+        }
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut Vec<Interval> {
+        &mut self.inner
+    }
+}
+
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
+struct Interval {
+    pub start: u64,
+    pub end: u64,
+}
+
+impl Interval {
+    #[inline]
+    pub(crate) fn new(start: u64, end: u64) -> Self {
+        Interval { start, end }
     }
 }
 
@@ -222,5 +288,40 @@ mod test {
         assert_matches!(x.next(32), Some(ref y) if &y[..] == b"1234");
         x.insert(0, Bytes::from_static(b"1234"));
         assert_matches!(x.next(32), None);
+    }
+
+    #[test]
+    fn intervals_dup() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(0, 1)));
+        assert!(!intervals.insert(Interval::new(0, 1)));
+    }
+
+    #[test]
+    fn intervals_overlap_before() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(1, 3)));
+        assert!(intervals.insert(Interval::new(0, 2)));
+    }
+
+    #[test]
+    fn intervals_overlap_after() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(0, 2)));
+        assert!(intervals.insert(Interval::new(1, 3)));
+    }
+
+    #[test]
+    fn intervals_contains() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(0, 3)));
+        assert!(!intervals.insert(Interval::new(1, 2)));
+    }
+
+    #[test]
+    fn intervals_around() {
+        let mut intervals = Intervals::new();
+        assert!(intervals.insert(Interval::new(1, 2)));
+        assert!(intervals.insert(Interval::new(0, 3)));
     }
 }
